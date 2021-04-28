@@ -124,6 +124,8 @@ def search_span_endpoints(start_probs, end_probs, window=15):
         Optimal starting and ending indices for the answer span. Note that the
         chosen end index is *inclusive*.
     """
+    # TODO Figure out a way to rule out unlikely start/end positions using NER
+    # nlp = spacy.load('en_core_web_sm')
     max_start_index = start_probs.index(max(start_probs))
     max_end_index = -1
     max_joint_prob = 0.

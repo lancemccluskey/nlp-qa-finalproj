@@ -23,6 +23,8 @@ Author:
 import argparse
 import pprint
 import json
+import spacy
+import re
 
 import torch
 import numpy as np
@@ -409,6 +411,14 @@ def write_predictions(args, model, dataset):
     # Output predictions.
     outputs = []
 
+    # Load spacy NER tags
+    # ! Need to use en_core_web_md OR en_core_web_lg instead. The sm package doesnt capture all the correct tags
+    ner = spacy.load("en_core_web_lg")
+
+    # * Prob diff to use
+    prob_diff = 0.10
+    index_diff = 1
+
     with torch.no_grad():
         for (i, batch) in enumerate(test_dataloader):
             # Forward inputs.
@@ -419,14 +429,104 @@ def write_predictions(args, model, dataset):
             batch_end_probs = F.softmax(end_logits, 1)
 
             for j in range(start_logits.size(0)):
+                # TODO work here
                 # Find question index and passage.
                 sample_index = args.batch_size * i + j
-                qid, passage, _, _, _ = dataset.samples[sample_index]
+                # $ qid, passage, question, answer_start, answer_end
+                qid, passage, question, _, _ = dataset.samples[sample_index]
 
                 # Unpack start and end probabilities. Find the constrained
                 # (start, end) pair that has the highest joint probability.
                 start_probs = unpack(batch_start_probs[j])
                 end_probs = unpack(batch_end_probs[j])
+                # % Right now, all this function does is find the highest joint prob
+                # % 2 options:
+                # * * only send highest start probs for NER tokens other than O
+                # * * replace all others with 0
+                # * * things to try:
+                """
+                    This seems like a fine approach using an NER tagging solution.  
+                    However, I think you should be able to justify setting things tagged to "O" to 0, 
+                    and perhaps experiment with a more sophisticated heuristic 
+                    (for instance questions asking "Who" mask all but "*-PER" tags, "Where" mask all but "*-LOC", etc).  
+                    You should also look into something smarter than setting the probability to 0 (after all, 
+                    what if your NER system makes a mistake?  
+                    Can you quantify how often this happens and use it in your heuristic?).  
+                    If you can answer these questions you will be well on a way to a solid final report.  Good luck!
+                """
+                # ! Right now im assuming that the start probs are the index of the first letter of each word
+                # $ ner_passage: ents: [{ text, start, end, start_char, end_char, label_, label(hash) }]
+                # TODO REMEMBER, I renamed this 
+                passage_ner_tokens = ner(passage)
+
+                passage_ner_token_start_indices = [i.start_char for i in passage_ner_tokens.ents]
+                passage_ner_token_end_indices = [i.end_char for i in passage_ner_tokens.ents]
+                
+                # Set O tokens to 0 probability
+                # ! start_probs is list of PROBABILITIES, so length is length of passage
+                # %
+                # %
+                # %  TOMORROW:
+                # %     push to gh
+                # %     run in colab
+                # %     see if decrementing "other" probs helps performance
+
+                # 1. Loop through length of passage start probs
+                for i in range(len(start_probs)):
+                    # 2. IF this index is NOT a token start index
+                    if i not in passage_ner_token_start_indices:
+                        # 3. THEN decrement the probability
+                        start_probs[i] -= prob_diff
+
+                for i in range(len(end_probs)):
+                    if i not in passage_ner_token_end_indices:
+                        end_probs[i] -= prob_diff
+                
+                # ? who, what, when, where, why, how ?
+                # TODO Switch to using regex if possible instead of what im doing now
+                # TODO Uncomment below once I get the hang of switching O (Other) off
+                # if bool(re.match("(who|WHO|Who|whom|WHOM|Whom)", question)):
+                #     # Mask everything except PERSON
+                #     # ! Refactor later, for now just get it running
+                #     person_token_start_indices = [i.start_char for i in ner_passage.ents if i.label_ == "PERSON"]
+                #     person_token_end_indices = [i.end_char for i in ner_passage.ents if i.label_ == "PERSON"]
+                #     # TODO Compare these indices to the start_probs, Maybe the end probs too ?
+                #     for start_prob in start_probs:
+                #         threshold = [i < i + prob_diff and i > i - prob_diff for i in person_token_start_indices]
+                #         if start_prob in person_token_start_indices:
+                #             start_prob += prob_diff
+                #         else:
+                #             start_prob -= prob_diff
+
+                #     for end_prob in end_probs:
+                #         if end_prob in person_token_end_indices:
+                #             end_prob += prob_diff
+                #         else:
+                #             end_prob -= prob_diff
+                # elif bool(re.match("(when|WHEN|When)", question)):
+                #     # Mask everything except DATE, TIME
+                #     when_token_indices = [i.start for i in ner_passage.ents if i.label_ == "DATE" or i.label_ == "TIME"]
+                #     # TODO Compare these indices to the start_probs, Maybe the end probs too ?
+                #     for prob in start_probs:
+                #         if prob in when_token_indices:
+                #             prob += prob_diff
+                #         else:
+                #             prob -= prob_diff
+                # elif bool(re.match("(where|WHERE|Where)", question)):
+                #     # Mask everything except LOC
+                #     where_token_indices = [i.start for i in ner_passage.ents if i.label_ == "LOC"]
+                #     # TODO Compare these indices to the start_probs, Maybe the end probs too ?
+                #     for prob in start_probs:
+                #         if prob in where_token_indices:
+                #             prob += prob_diff
+                #         else:
+                #             prob -= prob_diff
+                # else:
+                #     # Everything else here
+                #     else_token_indices = [i.start for i in ner_passage.ents]
+                #     # TODO Compare these indices to the start_probs, Maybe the end probs too ? 
+
+
                 start_index, end_index = search_span_endpoints(
                         start_probs, end_probs
                 )
