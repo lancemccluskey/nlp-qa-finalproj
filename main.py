@@ -423,6 +423,7 @@ def write_predictions(args, model, dataset):
 
     with torch.no_grad():
         for (i, batch) in enumerate(test_dataloader):
+            print("Starting loop: " + str(i))
             # Forward inputs.
             start_logits, end_logits = model(batch)
 
