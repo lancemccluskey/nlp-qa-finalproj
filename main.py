@@ -46,6 +46,7 @@ _TQDM_OPTIONS = {
     'ncols': _TQDM_BAR_SIZE, 'leave': _TQDM_LEAVE, 'unit': _TQDM_UNIT
 }
 
+spacy.prefer_gpu()
 
 parser = argparse.ArgumentParser()
 
@@ -416,6 +417,7 @@ def write_predictions(args, model, dataset):
     ner = spacy.load("en_core_web_lg")
 
     # * Prob diff to use
+    # ! This is what ill experiment with when I get everything working
     prob_diff = 0.10
     index_diff = 1
 
@@ -429,7 +431,6 @@ def write_predictions(args, model, dataset):
             batch_end_probs = F.softmax(end_logits, 1)
 
             for j in range(start_logits.size(0)):
-                # TODO work here
                 # Find question index and passage.
                 sample_index = args.batch_size * i + j
                 # $ qid, passage, question, answer_start, answer_end
@@ -455,12 +456,13 @@ def write_predictions(args, model, dataset):
                     If you can answer these questions you will be well on a way to a solid final report.  Good luck!
                 """
                 # ! Right now im assuming that the start probs are the index of the first letter of each word
-                # $ ner_passage: ents: [{ text, start, end, start_char, end_char, label_, label(hash) }]
-                # TODO REMEMBER, I renamed this 
-                passage_ner_tokens = ner(passage)
+                # $ ner_passage_tokens: ents: [{ text, start, end, start_char, end_char, label_, label(hash) }]
+                question_joined = ' '.join(question)
+                passage_joined = ' '.join(passage)
+                ner_passage_tokens = ner(passage_joined)
 
-                passage_ner_token_start_indices = [i.start_char for i in passage_ner_tokens.ents]
-                passage_ner_token_end_indices = [i.end_char for i in passage_ner_tokens.ents]
+                passage_ner_token_start_indices = [i.start_char for i in ner_passage_tokens.ents]
+                passage_ner_token_end_indices = [i.end_char for i in ner_passage_tokens.ents]
                 
                 # Set O tokens to 0 probability
                 # ! start_probs is list of PROBABILITIES, so length is length of passage
@@ -471,62 +473,85 @@ def write_predictions(args, model, dataset):
                 # %     run in colab
                 # %     see if decrementing "other" probs helps performance
 
+                start_probs_len = len(start_probs)
+                end_probs_len = len(end_probs)
+
                 # 1. Loop through length of passage start probs
-                for i in range(len(start_probs)):
+                for i in range(start_probs_len):
                     # 2. IF this index is NOT a token start index
                     if i not in passage_ner_token_start_indices:
                         # 3. THEN decrement the probability
                         start_probs[i] -= prob_diff
 
-                for i in range(len(end_probs)):
+                for i in range(end_probs_len):
                     if i not in passage_ner_token_end_indices:
                         end_probs[i] -= prob_diff
-                
+
                 # ? who, what, when, where, why, how ?
-                # TODO Switch to using regex if possible instead of what im doing now
-                # TODO Uncomment below once I get the hang of switching O (Other) off
-                # if bool(re.match("(who|WHO|Who|whom|WHOM|Whom)", question)):
-                #     # Mask everything except PERSON
-                #     # ! Refactor later, for now just get it running
-                #     person_token_start_indices = [i.start_char for i in ner_passage.ents if i.label_ == "PERSON"]
-                #     person_token_end_indices = [i.end_char for i in ner_passage.ents if i.label_ == "PERSON"]
-                #     # TODO Compare these indices to the start_probs, Maybe the end probs too ?
-                #     for start_prob in start_probs:
-                #         threshold = [i < i + prob_diff and i > i - prob_diff for i in person_token_start_indices]
-                #         if start_prob in person_token_start_indices:
-                #             start_prob += prob_diff
-                #         else:
-                #             start_prob -= prob_diff
+                if bool(re.match("(who|WHO|Who|whom|WHOM|Whom)", question_joined)):
+                    person_token_start_indices = [i.start_char for i in ner_passage_tokens_tokens.ents if i.label_ == "PERSON"]
+                    person_token_end_indices = [i.end_char for i in ner_passage_tokens.ents if i.label_ == "PERSON"]
 
-                #     for end_prob in end_probs:
-                #         if end_prob in person_token_end_indices:
-                #             end_prob += prob_diff
-                #         else:
-                #             end_prob -= prob_diff
-                # elif bool(re.match("(when|WHEN|When)", question)):
-                #     # Mask everything except DATE, TIME
-                #     when_token_indices = [i.start for i in ner_passage.ents if i.label_ == "DATE" or i.label_ == "TIME"]
-                #     # TODO Compare these indices to the start_probs, Maybe the end probs too ?
-                #     for prob in start_probs:
-                #         if prob in when_token_indices:
-                #             prob += prob_diff
-                #         else:
-                #             prob -= prob_diff
-                # elif bool(re.match("(where|WHERE|Where)", question)):
-                #     # Mask everything except LOC
-                #     where_token_indices = [i.start for i in ner_passage.ents if i.label_ == "LOC"]
-                #     # TODO Compare these indices to the start_probs, Maybe the end probs too ?
-                #     for prob in start_probs:
-                #         if prob in where_token_indices:
-                #             prob += prob_diff
-                #         else:
-                #             prob -= prob_diff
-                # else:
-                #     # Everything else here
-                #     else_token_indices = [i.start for i in ner_passage.ents]
-                #     # TODO Compare these indices to the start_probs, Maybe the end probs too ? 
+                    for i in range(start_probs_len):
+                        if i in person_token_start_indices:
+                            start_probs[i] += prob_diff
+                        else:
+                            start_probs[i] -= prob_diff
+
+                    for i in range(end_probs_len):
+                        if i in person_token_end_indices:
+                            end_probs[i] += prob_diff
+                        else:
+                            end_probs[i] -= prob_diff
+                elif bool(re.match("(when|WHEN|When)", question_joined)):
+                    # Mask everything except DATE, TIME
+                    when_token_start_indices = [i.start_char for i in ner_passage_tokens.ents if i.label_ == "DATE" or i.label_ == "TIME"]
+                    when_token_end_indices = [i.end_char for i in ner_passage_tokens.ents if i.label_ == "DATE" or i.label_ == "TIME"]
+
+                    for i in range(start_probs_len):
+                        if i in when_token_start_indices:
+                            start_probs[i] += prob_diff
+                        else:
+                            start_probs[i] -= prob_diff
+
+                    for i in range(end_probs_len):
+                        if i in when_token_end_indices:
+                            end_probs[i] += prob_diff
+                        else:
+                            end_probs[i] -= prob_diff
+                elif bool(re.match("(where|WHERE|Where)", question_joined)):
+                    # Mask everything except LOC
+                    where_token_start_indices = [i.start_char for i in ner_passage_tokens.ents if i.label_ == "LOC"]
+                    where_token_end_indices = [i.end_char for i in ner_passage_tokens.ents if i.label_ == "LOC"]
+
+                    for i in range(start_probs_len):
+                        if i in where_token_start_indices:
+                            start_probs[i] += prob_diff
+                        else:
+                            start_probs[i] -= prob_diff
+
+                    for i in range(end_probs_len):
+                        if i in where_token_end_indices:
+                            end_probs[i] += prob_diff
+                        else:
+                            end_probs[i] -= prob_diff
 
 
+                """
+                At this point, start_probs and end_probs should have all the probabilities for indices 
+                that are associated with O (Other) tokens decremented by the value of prob_diff.
+                
+                Also, 
+                    if the question contains some form of "who", then we are probably looking for a person
+                    so we should use the PERSON tokens found in the passage from the spacy library to add
+                    the value of prob_diff to the corresponding index in start_probs and end_probs
+
+                Expectation: 
+                    Incrementing the probability of the right tokens should correspond to a greater chance
+                    of the model predicting the right answer.
+                    Decrementing the probability of O (Other) tokens should prevent the model from starting
+                    or ending on a word that doesnt really mean anything 
+                """
                 start_index, end_index = search_span_endpoints(
                         start_probs, end_probs
                 )
