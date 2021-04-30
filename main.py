@@ -46,7 +46,7 @@ _TQDM_OPTIONS = {
     'ncols': _TQDM_BAR_SIZE, 'leave': _TQDM_LEAVE, 'unit': _TQDM_UNIT
 }
 
-spacy.prefer_gpu()
+# spacy.prefer_gpu()
 
 parser = argparse.ArgumentParser()
 
