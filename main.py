@@ -435,6 +435,7 @@ def write_predictions(args, model, dataset):
             for j in range(start_logits.size(0)):
                 # Find question index and passage.
                 sample_index = args.batch_size * i + j
+                print("Inner Loop: " + str(j) +  " | Sample Index: " + str(sample_index))
                 # $ qid, passage, question, answer_start, answer_end
                 qid, passage, question, _, _ = dataset.samples[sample_index]
 
