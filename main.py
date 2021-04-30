@@ -414,7 +414,8 @@ def write_predictions(args, model, dataset):
 
     # Load spacy NER tags
     # ! Need to use en_core_web_md OR en_core_web_lg instead. The sm package doesnt capture all the correct tags
-    ner = spacy.load("en_core_web_lg")
+    # TODO Switch back to lg once you get it working
+    ner = spacy.load("en_core_web_sm")
 
     # * Prob diff to use
     # ! This is what ill experiment with when I get everything working
