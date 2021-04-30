@@ -489,7 +489,7 @@ def write_predictions(args, model, dataset):
 
                 # ? who, what, when, where, why, how ?
                 if bool(re.match("(who|WHO|Who|whom|WHOM|Whom)", question_joined)):
-                    person_token_start_indices = [i.start_char for i in ner_passage_tokens_tokens.ents if i.label_ == "PERSON"]
+                    person_token_start_indices = [i.start_char for i in ner_passage_tokens.ents if i.label_ == "PERSON"]
                     person_token_end_indices = [i.end_char for i in ner_passage_tokens.ents if i.label_ == "PERSON"]
 
                     for i in range(start_probs_len):
