@@ -413,14 +413,11 @@ def write_predictions(args, model, dataset):
     outputs = []
 
     # Load spacy NER tags
-    # ! Need to use en_core_web_md OR en_core_web_lg instead. The sm package doesnt capture all the correct tags
-    # TODO Switch back to lg once you get it working
-    ner = spacy.load("en_core_web_sm")
+    # Need to download the lg package separately before running using
+    # python -m spacy download en_core_web_lg
+    ner = spacy.load("en_core_web_lg")
 
-    # * Prob diff to use
-    # ! This is what ill experiment with when I get everything working
     prob_diff = 0.10
-    index_diff = 1
 
     with torch.no_grad():
         for (i, batch) in enumerate(test_dataloader):
@@ -435,31 +432,15 @@ def write_predictions(args, model, dataset):
             for j in range(start_logits.size(0)):
                 # Find question index and passage.
                 sample_index = args.batch_size * i + j
-                print("Inner Loop: " + str(j) +  " | Sample Index: " + str(sample_index))
-                # $ qid, passage, question, answer_start, answer_end
+                
+                # Getting errors here, but my code shouldnt have messed with this
                 qid, passage, question, _, _ = dataset.samples[sample_index]
 
                 # Unpack start and end probabilities. Find the constrained
                 # (start, end) pair that has the highest joint probability.
                 start_probs = unpack(batch_start_probs[j])
                 end_probs = unpack(batch_end_probs[j])
-                # % Right now, all this function does is find the highest joint prob
-                # % 2 options:
-                # * * only send highest start probs for NER tokens other than O
-                # * * replace all others with 0
-                # * * things to try:
-                """
-                    This seems like a fine approach using an NER tagging solution.  
-                    However, I think you should be able to justify setting things tagged to "O" to 0, 
-                    and perhaps experiment with a more sophisticated heuristic 
-                    (for instance questions asking "Who" mask all but "*-PER" tags, "Where" mask all but "*-LOC", etc).  
-                    You should also look into something smarter than setting the probability to 0 (after all, 
-                    what if your NER system makes a mistake?  
-                    Can you quantify how often this happens and use it in your heuristic?).  
-                    If you can answer these questions you will be well on a way to a solid final report.  Good luck!
-                """
-                # ! Right now im assuming that the start probs are the index of the first letter of each word
-                # $ ner_passage_tokens: ents: [{ text, start, end, start_char, end_char, label_, label(hash) }]
+
                 question_joined = ' '.join(question)
                 passage_joined = ' '.join(passage)
                 ner_passage_tokens = ner(passage_joined)
@@ -467,15 +448,6 @@ def write_predictions(args, model, dataset):
                 passage_ner_token_start_indices = [i.start_char for i in ner_passage_tokens.ents]
                 passage_ner_token_end_indices = [i.end_char for i in ner_passage_tokens.ents]
                 
-                # Set O tokens to 0 probability
-                # ! start_probs is list of PROBABILITIES, so length is length of passage
-                # %
-                # %
-                # %  TOMORROW:
-                # %     push to gh
-                # %     run in colab
-                # %     see if decrementing "other" probs helps performance
-
                 start_probs_len = len(start_probs)
                 end_probs_len = len(end_probs)
 
@@ -490,8 +462,9 @@ def write_predictions(args, model, dataset):
                     if i not in passage_ner_token_end_indices:
                         end_probs[i] -= prob_diff
 
-                # ? who, what, when, where, why, how ?
+                # ? who, when, where ?
                 if bool(re.match("(who|WHO|Who|whom|WHOM|Whom)", question_joined)):
+                    # Mask everything except PERSON
                     person_token_start_indices = [i.start_char for i in ner_passage_tokens.ents if i.label_ == "PERSON"]
                     person_token_end_indices = [i.end_char for i in ner_passage_tokens.ents if i.label_ == "PERSON"]
 
